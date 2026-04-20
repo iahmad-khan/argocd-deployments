@@ -1,4 +1,4 @@
-# vault-eso
+# argocd-deployments
 
 Deploys HashiCorp Vault and External Secrets Operator (ESO) across `dev`, `uat`, and `prod` environments using Helm charts managed by ArgoCD. 
 
