@@ -8,33 +8,33 @@ Deploys HashiCorp Vault and External Secrets Operator (ESO) across `dev`, `uat`,
 
 ```
 vault-eso/
-├── app-default-values/
-│   ├── vault/
-│   │   ├── values/
-│   │   │   └── base.yaml          # Shared Vault Helm values (image, HA, storage, resources)
-│   │   ├── manifests/
-│   │   │   ├── base/              # Kustomize base: RBAC + PostSync config job
-│   │   │   ├── dev/               # Kustomize overlay: includes base + dev UI ingress
-│   │   │   ├── uat/
-│   │   │   └── prod/
-│   │   └── monitoring/
-│   │       ├── podmonitor.yaml    # Prometheus PodMonitor for all vault server pods
-│   │       ├── prometheusrule.yaml# Alerting rules (sealed, no leader, audit failures, …)
-│   │       └── grafana-dashboard.yaml  # ConfigMap with Vault Grafana dashboard
-│   └── eso/
-│       ├── values/
-│       │   └── base.yaml          # Shared ESO Helm values
-│       ├── secretstore/
-│       │   ├── dev.yaml           # ClusterSecretStore → Vault (Kubernetes auth)
-│       │   ├── uat.yaml
-│       │   └── prod.yaml
-│       └── monitoring/
-│           ├── servicemonitor.yaml # Prometheus ServiceMonitor for ESO metrics
-│           ├── prometheusrule.yaml # Alerting rules (sync errors, queue depth, …)
-│           └── grafana-dashboard.yaml  # ConfigMap with ESO Grafana dashboard
 ├── helm-charts/
 │   └── hello-world/           # Demo app Helm chart
 └── argocd/
+    ├── app-default-values/
+    │   ├── vault/
+    │   │   ├── values/
+    │   │   │   └── base.yaml          # Shared Vault Helm values (image, HA, storage, resources)
+    │   │   ├── manifests/
+    │   │   │   ├── base/              # Kustomize base: RBAC + PostSync config job
+    │   │   │   ├── dev/               # Kustomize overlay: includes base + dev UI ingress
+    │   │   │   ├── uat/
+    │   │   │   └── prod/
+    │   │   └── monitoring/
+    │   │       ├── podmonitor.yaml    # Prometheus PodMonitor for all vault server pods
+    │   │       ├── prometheusrule.yaml# Alerting rules (sealed, no leader, audit failures, …)
+    │   │       └── grafana-dashboard.yaml  # ConfigMap with Vault Grafana dashboard
+    │   └── eso/
+    │       ├── values/
+    │       │   └── base.yaml          # Shared ESO Helm values
+    │       ├── secretstore/
+    │       │   ├── dev.yaml           # ClusterSecretStore → Vault (Kubernetes auth)
+    │       │   ├── uat.yaml
+    │       │   └── prod.yaml
+    │       └── monitoring/
+    │           ├── servicemonitor.yaml # Prometheus ServiceMonitor for ESO metrics
+    │           ├── prometheusrule.yaml # Alerting rules (sync errors, queue depth, …)
+    │           └── grafana-dashboard.yaml  # ConfigMap with ESO Grafana dashboard
     ├── app-versions-dev.yaml  # Image tags for dev  — CI/CD bumps these
     ├── app-versions-uat.yaml  # Image tags for uat
     ├── app-versions-prod.yaml # Image tags for prod
@@ -124,7 +124,7 @@ Before applying, replace all placeholder values in the env-specific files:
 |---|---|
 | `<DEV/UAT/PROD_AWS_ACCOUNT_ID>` | AWS account ID for that environment |
 
-### `app-default-values/eso/secretstore/<env>.yaml`
+### `argocd/app-default-values/eso/secretstore/<env>.yaml`
 
 No placeholders — the `ClusterSecretStore` connects to Vault via the in-cluster DNS name `vault-active.vault.svc.cluster.local`, which works once Vault is running.
 
