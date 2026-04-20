@@ -24,17 +24,20 @@ vault-eso/
     │   │       ├── podmonitor.yaml    # Prometheus PodMonitor for all vault server pods
     │   │       ├── prometheusrule.yaml# Alerting rules (sealed, no leader, audit failures, …)
     │   │       └── grafana-dashboard.yaml  # ConfigMap with Vault Grafana dashboard
-    │   └── eso/
-    │       ├── values/
-    │       │   └── base.yaml          # Shared ESO Helm values
-    │       ├── secretstore/
-    │       │   ├── dev.yaml           # ClusterSecretStore → Vault (Kubernetes auth)
-    │       │   ├── uat.yaml
-    │       │   └── prod.yaml
-    │       └── monitoring/
-    │           ├── servicemonitor.yaml # Prometheus ServiceMonitor for ESO metrics
-    │           ├── prometheusrule.yaml # Alerting rules (sync errors, queue depth, …)
-    │           └── grafana-dashboard.yaml  # ConfigMap with ESO Grafana dashboard
+    │   ├── eso/
+    │   │   ├── values/
+    │   │   │   └── base.yaml          # Shared ESO Helm values
+    │   │   ├── secretstore/
+    │   │   │   ├── dev.yaml           # ClusterSecretStore → Vault (Kubernetes auth)
+    │   │   │   ├── uat.yaml
+    │   │   │   └── prod.yaml
+    │   │   └── monitoring/
+    │   │       ├── servicemonitor.yaml # Prometheus ServiceMonitor for ESO metrics
+    │   │       ├── prometheusrule.yaml # Alerting rules (sync errors, queue depth, …)
+    │   │       └── grafana-dashboard.yaml  # ConfigMap with ESO Grafana dashboard
+    │   └── langfuse/
+    │       └── values/
+    │           └── base.yaml          # Shared Langfuse Helm values (secrets refs, ingress, DBs)
     ├── app-versions-dev.yaml  # Image tags for dev  — CI/CD bumps these
     ├── app-versions-uat.yaml  # Image tags for uat
     ├── app-versions-prod.yaml # Image tags for prod
@@ -51,6 +54,7 @@ vault-eso/
         │   ├── values.yaml            # Root app values (env: dev)
         │   ├── vault/values.yaml      # Vault Helm overrides for dev
         │   ├── eso/values.yaml        # ESO Helm overrides for dev
+        │   ├── langfuse/values.yaml   # Langfuse ingress host + env overrides
         │   └── hello-world/values.yaml
         ├── uat/               # Same structure
         └── prod/              # Same structure
@@ -66,6 +70,7 @@ vault-eso/
 | `eso-secretstore-<env>` | `ClusterSecretStore` pointing to Vault | 2 |
 | `vault-monitoring-<env>` | PodMonitor, PrometheusRule, Grafana dashboard (Vault) | 3 |
 | `eso-monitoring-<env>` | ServiceMonitor, PrometheusRule, Grafana dashboard (ESO) | 3 |
+| `langfuse-<env>` | Langfuse LLM observability platform (Helm chart) | 3 |
 | `hello-world-<env>` | Demo app proving end-to-end ESO + Vault secret injection | 4 |
 
 ---
@@ -348,6 +353,76 @@ The `hello-world-<env>` Application (sync wave 4 — after ESO and the SecretSto
 | Init container waits for ESO sync before app starts | [deployment.yaml](helm-charts/hello-world/templates/deployment.yaml) |
 | Secrets as env vars AND as `/vault-secrets/` volume | [deployment.yaml](helm-charts/hello-world/templates/deployment.yaml) |
 | `creationPolicy: Owner` — ESO owns the Secret lifecycle | [externalsecret.yaml](helm-charts/hello-world/templates/externalsecret.yaml) |
+
+---
+
+## Langfuse (`langfuse-<env>`)
+
+[Langfuse](https://langfuse.com) is an open-source LLM observability platform. It is deployed via the official Helm chart on all environments at sync wave 3.
+
+### Infrastructure
+
+| Component | Provider |
+|---|---|
+| PostgreSQL | AWS RDS |
+| Redis | AWS ElastiCache (TLS + auth token) |
+| ClickHouse | External (self-managed or ClickHouse Cloud) |
+| Blob storage | AWS S3 (IRSA — no static credentials) |
+
+### Secrets
+
+Langfuse requires a Kubernetes Secret named `langfuse-secrets` in the `langfuse` namespace. Populate the following keys in Vault and let ESO sync them:
+
+```bash
+vault kv put secret/langfuse \
+  nextauth-secret="$(openssl rand -hex 32)" \
+  salt="$(openssl rand -hex 32)" \
+  encryption-key="$(openssl rand -hex 32)" \
+  rds-password="<RDS_PASSWORD>" \
+  elasticache-auth-token="<ELASTICACHE_AUTH_TOKEN>" \
+  clickhouse-password="<STRONG_PASSWORD>"
+```
+
+Then create an `ExternalSecret` in the `langfuse` namespace referencing `vault-backend` to materialise `langfuse-secrets` before the Helm release syncs.
+
+### IAM — S3 access via IRSA
+
+S3 access uses IRSA — no static credentials needed. Create an IAM role per environment with the following policy and annotate the service account via `argocd/environments/<env>/langfuse/values.yaml`:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:ListBucket"],
+  "Resource": [
+    "arn:aws:s3:::langfuse-<env>",
+    "arn:aws:s3:::langfuse-<env>/*"
+  ]
+}
+```
+
+### Configuration
+
+| File | Purpose |
+|---|---|
+| `argocd/app-default-values/langfuse/values/base.yaml` | External service toggles, secret refs, TLS, S3 region |
+| `argocd/environments/<env>/langfuse/values.yaml` | RDS endpoint, ElastiCache endpoint, S3 bucket, IRSA role, ingress host |
+
+### Fill in placeholders per environment
+
+| Placeholder | Description |
+|---|---|
+| `<DEV/UAT/PROD_RDS_ENDPOINT>` | RDS instance endpoint, e.g. `langfuse.abc123.us-east-1.rds.amazonaws.com` |
+| `<DEV/UAT/PROD_ELASTICACHE_ENDPOINT>` | ElastiCache primary endpoint, e.g. `langfuse-dev.abc123.use1.cache.amazonaws.com` |
+| `<DEV/UAT/PROD_CLICKHOUSE_ENDPOINT>` | ClickHouse host, e.g. `abc123.us-east-1.aws.clickhouse.cloud` |
+| `<DEV/UAT/PROD_AWS_ACCOUNT_ID>` | AWS account ID for the IRSA role ARN |
+
+### Ingress hostnames
+
+| Environment | URL |
+|---|---|
+| dev | `langfuse.dev.<YOUR_DOMAIN>` |
+| uat | `langfuse.uat.<YOUR_DOMAIN>` |
+| prod | `langfuse.prod.<YOUR_DOMAIN>` |
 
 ---
 

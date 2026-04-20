@@ -1,0 +1,34 @@
+{{- if .Values.apps.langfuse.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: langfuse-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.langfuse.syncWave | quote }}
+spec:
+  project: default
+  sources:
+    - repoURL: https://langfuse.github.io/langfuse-k8s
+      chart: langfuse
+      targetRevision: {{ .Values.apps.langfuse.chartVersion | quote }}
+      helm:
+        # Release name must be 'langfuse' — chart uses it to build internal Redis hostname
+        releaseName: langfuse
+        valueFiles:
+          - $values/vault-eso/argocd/app-default-values/langfuse/values/base.yaml
+          - $values/vault-eso/argocd/environments/{{ .Values.env }}/langfuse/values.yaml
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      ref: values
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.langfuse.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

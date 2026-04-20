@@ -1,0 +1,25 @@
+langfuse:
+  replicaCount: 2
+  nextauth:
+    url: "https://langfuse.prod.<YOUR_DOMAIN>"
+  ingress:
+    hosts:
+      - host: langfuse.prod.<YOUR_DOMAIN>
+        paths:
+          - path: /
+            pathType: Prefix
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::<PROD_AWS_ACCOUNT_ID>:role/langfuse-prod"
+
+postgresql:
+  host: "<PROD_RDS_ENDPOINT>"
+
+redis:
+  host: "<PROD_ELASTICACHE_ENDPOINT>"
+
+s3:
+  bucket: "langfuse-prod"
+
+clickhouse:
+  host: "<PROD_CLICKHOUSE_ENDPOINT>"

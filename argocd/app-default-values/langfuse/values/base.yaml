@@ -1,0 +1,75 @@
+# Shared Langfuse Helm values across all environments
+# Chart: https://github.com/langfuse/langfuse-k8s
+# Release name must stay 'langfuse' — internal service hostnames depend on it
+
+langfuse:
+  nextauth:
+    # url overridden per environment
+    secret:
+      secretKeyRef:
+        name: langfuse-secrets
+        key: nextauth-secret
+  salt:
+    secretKeyRef:
+      name: langfuse-secrets
+      key: salt
+  encryptionKey:
+    secretKeyRef:
+      name: langfuse-secrets
+      key: encryption-key
+
+  ingress:
+    enabled: true
+    className: nginx
+
+  # IRSA role ARN overridden per environment
+  serviceAccount:
+    annotations: {}
+
+# External RDS PostgreSQL — host overridden per environment
+postgresql:
+  deploy: false
+  port: 5432
+  auth:
+    username: langfuse
+    database: langfuse
+    password:
+      secretKeyRef:
+        name: langfuse-secrets
+        key: rds-password
+
+# External ElastiCache Redis — host overridden per environment
+# ElastiCache requires TLS and uses an auth token instead of a password
+redis:
+  deploy: false
+  port: 6379
+  tls:
+    enabled: true
+  auth:
+    username: "default"
+    password:
+      secretKeyRef:
+        name: langfuse-secrets
+        key: elasticache-auth-token
+
+# AWS S3 for blob storage — bucket overridden per environment
+# Access via IRSA; no static credentials needed
+s3:
+  deploy: false
+  storageProvider: "s3"
+  region: "us-east-1"
+  forcePathStyle: false
+
+# External ClickHouse — host overridden per environment
+clickhouse:
+  deploy: false
+  httpPort: 8123
+  nativePort: 9000
+  database: langfuse
+  migration:
+    ssl: true
+    autoMigrate: true
+  auth:
+    username: langfuse
+    existingSecret: langfuse-secrets
+    existingSecretKey: clickhouse-password
