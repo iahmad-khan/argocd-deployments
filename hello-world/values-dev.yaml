@@ -1,0 +1,13 @@
+replicaCount: 1
+
+image:
+  repository: "your-registry/hello-world"
+  tag: "dev"
+
+ingress:
+  enabled: true
+  host: "hello-world.dev.<YOUR_DOMAIN>"
+
+vault:
+  secretPath: "hello-world"
+  refreshInterval: "5m"   # shorter interval for dev

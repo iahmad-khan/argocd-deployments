@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  sources:
+    # Vault Helm chart from HashiCorp
+    - repoURL: https://helm.releases.hashicorp.com
+      chart: vault
+      targetRevision: "0.30.1"
+      helm:
+        valueFiles:
+          - $values/vault-eso/vault/values/base.yaml
+          - $values/vault-eso/vault/values/dev.yaml
+    # Values files from this repo
+    - repoURL: https://github.com/iahmad-khan/infrastructure-as-code
+      targetRevision: HEAD
+      ref: values
+  destination:
+    name: dev   # ArgoCD registered cluster name
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

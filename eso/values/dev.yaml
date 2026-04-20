@@ -1,0 +1,4 @@
+# Dev environment overrides
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::<DEV_AWS_ACCOUNT_ID>:role/external-secrets-dev"

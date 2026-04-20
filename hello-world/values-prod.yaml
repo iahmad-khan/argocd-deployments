@@ -1,0 +1,21 @@
+replicaCount: 2
+
+image:
+  repository: "your-registry/hello-world"
+  tag: "stable"
+
+ingress:
+  enabled: true
+  host: "hello-world.prod.<YOUR_DOMAIN>"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+vault:
+  secretPath: "hello-world"
+  refreshInterval: "1h"

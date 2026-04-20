@@ -1,0 +1,81 @@
+# -----------------------------------------------------------------------------
+# hello-world — base values
+# Override per environment in values-dev.yaml / values-uat.yaml / values-prod.yaml
+# -----------------------------------------------------------------------------
+
+replicaCount: 1
+
+image:
+  # Replace with your actual registry/image name
+  repository: "your-registry/hello-world"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  # Leave empty to use the chart's generated name
+  name: ""
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  ingressClassName: nginx
+  host: "hello-world.example.com"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# -----------------------------------------------------------------------------
+# Vault / ESO — secret injection configuration
+#
+# Vault setup (run once before deploying):
+#   vault kv put secret/hello-world \
+#     db_password="supersecret" \
+#     api_key="my-api-key-123" \
+#     secret_message="Hello from HashiCorp Vault!"
+# -----------------------------------------------------------------------------
+vault:
+  # KV v2 path relative to the mount point configured in the ClusterSecretStore.
+  # The ClusterSecretStore uses path="secret" + version="v2", so this value
+  # resolves to: GET /v1/secret/data/hello-world
+  secretPath: "hello-world"
+
+  # Reference to the ClusterSecretStore created by eso-secretstore-<env>
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+
+  # How often ESO re-reads the secret from Vault and updates the k8s Secret.
+  # Use a short value (e.g. 1m) during development to see changes quickly.
+  refreshInterval: "1h"
+
+  # Individual secret keys to pull from the Vault path.
+  # Each entry maps:
+  #   vaultKey   — the key name inside the Vault KV secret
+  #   secretKey  — the key name in the resulting Kubernetes Secret
+  #   envVar     — the environment variable injected into the pod
+  secrets:
+    - vaultKey: db_password
+      secretKey: db-password
+      envVar: DB_PASSWORD
+
+    - vaultKey: api_key
+      secretKey: api-key
+      envVar: API_KEY
+
+    - vaultKey: secret_message
+      secretKey: secret-message
+      envVar: SECRET_MESSAGE

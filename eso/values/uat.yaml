@@ -1,0 +1,4 @@
+# UAT environment overrides
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::<UAT_AWS_ACCOUNT_ID>:role/external-secrets-uat"

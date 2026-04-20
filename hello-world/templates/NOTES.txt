@@ -1,0 +1,62 @@
+╔══════════════════════════════════════════════════════════════════╗
+║              hello-world — ESO + Vault demo app                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. POPULATE SECRETS IN VAULT (one-off)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  kubectl exec -it vault-0 -n vault -- vault kv put \
+    secret/{{ .Values.vault.secretPath }} \
+    db_password="supersecret" \
+    api_key="my-api-key-123" \
+    secret_message="Hello from HashiCorp Vault!"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. CHECK ESO SYNC STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # ExternalSecret should show Ready=True
+  kubectl get externalsecret {{ include "hello-world.fullname" . }} \
+    -n {{ .Release.Namespace }}
+
+  # The Kubernetes Secret created by ESO
+  kubectl get secret {{ include "hello-world.secretName" . }} \
+    -n {{ .Release.Namespace }}
+
+  # Decode a value to verify
+  kubectl get secret {{ include "hello-world.secretName" . }} \
+    -n {{ .Release.Namespace }} \
+    -o jsonpath='{.data.secret-message}' | base64 -d && echo
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. ACCESS THE APP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.ingress.enabled }}
+
+  http://{{ .Values.ingress.host }}
+{{- else }}
+
+  kubectl port-forward svc/{{ include "hello-world.fullname" . }} \
+    8080:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+
+  Then open: http://localhost:8080
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. HOW IT WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Vault KV (secret/{{ .Values.vault.secretPath }})
+      │
+      │  ESO reads via Kubernetes auth ({{ .Values.vault.secretStoreRef.name }})
+      │  Refresh interval: {{ .Values.vault.refreshInterval }}
+      ▼
+  Kubernetes Secret ({{ include "hello-world.secretName" . }})
+      │
+      │  Mounted as env vars + /vault-secrets/ volume
+      ▼
+  Pod (DB_PASSWORD, API_KEY, SECRET_MESSAGE)
