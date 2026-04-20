@@ -1,0 +1,24 @@
+{{- if .Values.apps.esoMonitoring.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: eso-monitoring-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.esoMonitoring.syncWave | quote }}
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.repoURL }}
+    targetRevision: {{ .Values.targetRevision }}
+    path: vault-eso/eso/monitoring
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.esoMonitoring.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+{{- end }}

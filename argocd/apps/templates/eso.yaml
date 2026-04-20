@@ -1,0 +1,32 @@
+{{- if .Values.apps.eso.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: eso-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.eso.syncWave | quote }}
+spec:
+  project: default
+  sources:
+    - repoURL: https://charts.external-secrets.io
+      chart: external-secrets
+      targetRevision: {{ .Values.apps.eso.chartVersion | quote }}
+      helm:
+        valueFiles:
+          - $values/vault-eso/eso/values/base.yaml
+          - $values/vault-eso/eso/values/{{ .Values.env }}.yaml
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      ref: values
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.eso.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

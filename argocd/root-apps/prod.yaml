@@ -1,27 +1,25 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: hello-world-prod
+  name: vault-eso-prod
   namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
     repoURL: https://github.com/iahmad-khan/infrastructure-as-code
     targetRevision: HEAD
-    path: vault-eso/hello-world
+    path: vault-eso/argocd/apps
     helm:
       valueFiles:
-        - values.yaml
-        - values-prod.yaml
+        - ../environments/prod/values.yaml
   destination:
-    name: prod
-    namespace: hello-world
+    server: https://kubernetes.default.svc
+    namespace: argocd
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true

@@ -38,9 +38,18 @@ vault-eso/
 │       ├── prometheusrule.yaml # Alerting rules (sync errors, queue depth, …)
 │       └── grafana-dashboard.yaml  # ConfigMap with ESO Grafana dashboard
 └── argocd/
-    ├── dev/                   # 6 ArgoCD Applications for dev
-    ├── uat/                   # 6 ArgoCD Applications for uat
-    └── prod/                  # 6 ArgoCD Applications for prod
+    ├── root-apps/             # One root Application per env — kubectl apply once
+    │   ├── dev.yaml
+    │   ├── uat.yaml
+    │   └── prod.yaml
+    ├── apps/                  # Helm chart; ArgoCD renders it into child Applications
+    │   ├── Chart.yaml
+    │   ├── values.yaml        # Shared defaults (chart versions, namespaces, sync-waves)
+    │   └── templates/         # One template per application (env-agnostic)
+    └── environments/          # Per-env overrides (env name only)
+        ├── dev/values.yaml
+        ├── uat/values.yaml
+        └── prod/values.yaml
 ```
 
 ### ArgoCD Applications per environment
@@ -53,6 +62,7 @@ vault-eso/
 | `eso-secretstore-<env>` | `ClusterSecretStore` pointing to Vault | 2 |
 | `vault-monitoring-<env>` | PodMonitor, PrometheusRule, Grafana dashboard (Vault) | 3 |
 | `eso-monitoring-<env>` | ServiceMonitor, PrometheusRule, Grafana dashboard (ESO) | 3 |
+| `hello-world-<env>` | Demo app proving end-to-end ESO + Vault secret injection | 4 |
 
 ---
 
@@ -114,9 +124,9 @@ Before applying, replace all placeholder values in the env-specific files:
 
 No placeholders — the `ClusterSecretStore` connects to Vault via the in-cluster DNS name `vault-active.vault.svc.cluster.local`, which works once Vault is running.
 
-### `argocd/<env>/*.yaml`
+### `argocd/root-apps/<env>.yaml`
 
-The `destination.name` field in each Application must match the cluster name registered in ArgoCD:
+The root app's `destination.name` for child Applications must match the cluster name registered in ArgoCD. This is driven by `env` in each environment values file and used in every child Application template:
 ```yaml
 destination:
   name: dev   # must match: argocd cluster list
@@ -128,10 +138,11 @@ destination:
 
 ### 1. Fill in all placeholder values
 
-Edit the four files for each environment you are deploying:
+Edit the following files for each environment you are deploying:
 - `vault/values/<env>.yaml`
 - `eso/values/<env>.yaml`
-- Each ArgoCD Application's `destination.name`
+
+The `destination.name` in child Applications is set automatically from `argocd/environments/<env>/values.yaml` — no manual edits needed there.
 
 ### 2. First-time Vault initialisation (once per cluster)
 
@@ -156,22 +167,23 @@ kubectl create secret generic vault-bootstrap-token -n vault \
 
 > After this one-time step, AWS KMS handles unsealing automatically on every pod restart.
 
-### 3. Apply the ArgoCD Applications
+### 3. Apply the root ArgoCD Application
 
-Apply all four Application manifests for the target environment:
+Apply the single root Application for the target environment. This is the only `kubectl apply` you ever need for ArgoCD — subsequent changes are picked up automatically via Git sync.
 
 ```bash
-kubectl apply -f argocd/dev/
+kubectl apply -f argocd/root-apps/dev.yaml
 # or
-kubectl apply -f argocd/uat/
-kubectl apply -f argocd/prod/
+kubectl apply -f argocd/root-apps/uat.yaml
+kubectl apply -f argocd/root-apps/prod.yaml
 ```
 
-ArgoCD will:
-1. Deploy the Vault Helm release (wave 0)
-2. Apply RBAC + UI ingress + trigger the PostSync config job (wave 1)
-3. Deploy ESO (wave 0, parallel with Vault)
-4. Apply the `ClusterSecretStore` after ESO is ready (wave 2)
+ArgoCD renders the Helm chart in `argocd/apps/` using the matching environment values and creates all child Applications. They then deploy in sync-wave order:
+1. `vault-<env>` and `eso-<env>` — Helm charts (wave 0, parallel)
+2. `vault-config-<env>` — RBAC, UI ingress, PostSync config job (wave 1)
+3. `eso-secretstore-<env>` — `ClusterSecretStore` after ESO is ready (wave 2)
+4. `vault-monitoring-<env>` and `eso-monitoring-<env>` — monitoring resources (wave 3)
+5. `hello-world-<env>` — demo app (wave 4)
 
 ### 4. Verify
 
@@ -301,11 +313,7 @@ kubectl exec -it vault-0 -n vault -- vault kv put secret/hello-world \
 
 ### ArgoCD Application
 
-The `hello-world-<env>` Application (sync wave 4 — after ESO and the SecretStore are ready) deploys the chart from this repo using the matching env values file:
-
-```bash
-kubectl apply -f argocd/dev/hello-world.yaml
-```
+The `hello-world-<env>` Application (sync wave 4 — after ESO and the SecretStore are ready) is generated automatically by the root app from [argocd/apps/templates/hello-world.yaml](argocd/apps/templates/hello-world.yaml). No separate `kubectl apply` is needed.
 
 ### Key design points in the chart
 

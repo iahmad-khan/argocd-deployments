@@ -1,0 +1,29 @@
+{{- if .Values.apps.helloWorld.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-world-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.helloWorld.syncWave | quote }}
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.repoURL }}
+    targetRevision: {{ .Values.targetRevision }}
+    path: vault-eso/hello-world
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.env }}.yaml
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.helloWorld.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

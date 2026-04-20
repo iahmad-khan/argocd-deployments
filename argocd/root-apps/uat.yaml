@@ -1,22 +1,25 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: vault-monitoring-dev
+  name: vault-eso-uat
   namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
     repoURL: https://github.com/iahmad-khan/infrastructure-as-code
     targetRevision: HEAD
-    path: vault-eso/vault/monitoring
+    path: vault-eso/argocd/apps
+    helm:
+      valueFiles:
+        - ../environments/uat/values.yaml
   destination:
-    name: dev
-    namespace: vault
+    server: https://kubernetes.default.svc
+    namespace: argocd
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
-      - ServerSideApply=true
+      - CreateNamespace=true

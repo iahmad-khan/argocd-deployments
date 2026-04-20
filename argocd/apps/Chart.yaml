@@ -1,0 +1,5 @@
+apiVersion: v2
+name: vault-eso-apps
+description: Vault + ESO ArgoCD child Applications
+type: application
+version: 0.1.0

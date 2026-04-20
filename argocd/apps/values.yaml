@@ -1,0 +1,44 @@
+repoURL: https://github.com/iahmad-khan/infrastructure-as-code
+targetRevision: HEAD
+argoCDNamespace: argocd
+
+# Overridden per environment
+env: placeholder
+
+apps:
+  eso:
+    enabled: true
+    syncWave: "0"
+    chartVersion: "0.9.13"
+    namespace: external-secrets
+
+  vault:
+    enabled: true
+    syncWave: "0"
+    chartVersion: "0.30.1"
+    namespace: vault
+
+  vaultConfig:
+    enabled: true
+    syncWave: "1"
+    namespace: vault
+
+  esoSecretstore:
+    enabled: true
+    syncWave: "2"
+    namespace: external-secrets
+
+  vaultMonitoring:
+    enabled: true
+    syncWave: "3"
+    namespace: vault
+
+  esoMonitoring:
+    enabled: true
+    syncWave: "3"
+    namespace: external-secrets
+
+  helloWorld:
+    enabled: true
+    syncWave: "4"
+    namespace: hello-world
