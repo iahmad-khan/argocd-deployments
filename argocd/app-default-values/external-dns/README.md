@@ -1,51 +1,73 @@
 # external-dns
 
-Deploys external-dns into the `external-dns` namespace. Watches Ingress and Service resources and automatically creates/updates Route53 A/CNAME records so hostnames are resolvable without manual DNS management. Uses IRSA for credential-free AWS auth. Synced at **wave 0** alongside cert-manager.
+Deploys external-dns into the `external-dns` namespace. Watches Ingress, Service, and **HTTPRoute** resources and automatically creates/updates DNS A/CNAME records. Supports Route53 (AWS/EKS via IRSA) and Cloud DNS (GCP/GKE via Workload Identity). Synced at **wave 0** alongside cert-manager and envoy-gateway.
 
 ## Architecture
 
 ```
-Ingress (hostname: my-app.prod.example.com)
-  └── external-dns watches → creates Route53 A record → my-app.prod.example.com
+HTTPRoute (hostname: my-app.prod.example.com)
+  └── external-dns watches → creates DNS A record → my-app.prod.example.com
         └── TXT ownership record → prevents other clusters overwriting the record
 ```
 
 ## Key Configuration
 
-| Setting | Value | Why |
+| Setting | Where | Why |
 |---------|-------|-----|
-| `provider` | `aws` | Route53 |
-| `sources` | `ingress`, `service` | Watch both resource types |
-| `policy` | `sync` | Delete stale records when Ingress/Service is removed |
-| `txtOwnerId` | `<env>-cluster` | Unique per cluster — prevents cross-cluster record conflicts |
-| `domainFilters` | `[<env>.<YOUR_DOMAIN>]` | Only manage records in the env-specific zone |
+| `provider` | per-env values | `aws` for Route53, `google` for Cloud DNS — set per environment |
+| `sources` | base values | `ingress`, `service`, `gateway-httproute` — picks up all hostname sources |
+| `policy` | base values | `sync` — deletes stale records when resources are removed |
+| `txtOwnerId` | per-env values | Unique per cluster, e.g. `dev-cluster` — prevents cross-cluster record conflicts |
+| `domainFilters` | per-env values | Restricts external-dns to only the env's domain — avoids touching unrelated zones |
 
 ## Files
 
 ```
 app-default-values/external-dns/
 └── values/
-    └── base.yaml                     ← shared Helm values (all envs)
+    └── base.yaml                         ← shared Helm values (sources, policy, resource limits)
 
-environments/<env>/external-dns/values.yaml   ← region, txtOwnerId, domainFilter, IRSA ARN
+environments/<env>/external-dns/values.yaml   ← provider, region/project, txtOwnerId, domainFilter, auth
 ```
 
 ## Per-environment overrides
 
-Each `environments/<env>/external-dns/values.yaml`:
+### AWS (EKS)
 
 ```yaml
+provider: aws
+
 aws:
   region: <AWS_REGION>
 
-txtOwnerId: <env>-cluster          # e.g. dev-cluster, uat-cluster, prod-cluster
+txtOwnerId: <env>-cluster
 
 domainFilters:
-  - <env>.<YOUR_DOMAIN>            # prod uses the apex domain
+  - <env>.<YOUR_DOMAIN>    # prod: <YOUR_DOMAIN>
 
 serviceAccount:
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/external-dns-<env>
+```
+
+### GCP (GKE)
+
+Replace the env values file with:
+
+```yaml
+provider: google
+
+google:
+  project: <GCP_PROJECT_ID>
+
+txtOwnerId: <env>-cluster
+
+domainFilters:
+  - <env>.<YOUR_DOMAIN>    # prod: <YOUR_DOMAIN>
+
+serviceAccount:
+  annotations:
+    iam.gke.io/gcp-service-account: external-dns-<env>@<GCP_PROJECT_ID>.iam.gserviceaccount.com
 ```
 
 ### Domain filter per environment
@@ -58,7 +80,9 @@ serviceAccount:
 
 ## IAM Pre-requisites
 
-Create role `external-dns-<env>` trusted by the `external-dns` namespace `external-dns` ServiceAccount via IRSA:
+### AWS (EKS)
+
+Create role `external-dns-<env>` trusted by the `external-dns/external-dns` ServiceAccount via IRSA:
 
 ```json
 {
@@ -82,24 +106,38 @@ Create role `external-dns-<env>` trusted by the `external-dns` namespace `extern
 }
 ```
 
-## Usage
+### GCP (GKE)
 
-Simply set a hostname on an Ingress — external-dns picks it up automatically:
+Create GCP service account `external-dns-<env>` with `roles/dns.admin`, then bind it to the `external-dns/external-dns` Kubernetes ServiceAccount via Workload Identity:
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: my-app
-spec:
-  rules:
-    - host: my-app.prod.example.com
-      ...
+```bash
+gcloud iam service-accounts add-iam-policy-binding \
+  external-dns-<env>@<GCP_PROJECT_ID>.iam.gserviceaccount.com \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:<GCP_PROJECT_ID>.svc.id.goog[external-dns/external-dns]"
 ```
 
-external-dns creates `my-app.prod.example.com → <LoadBalancer IP>` in Route53 within ~30 seconds.
+## Usage
 
-To expose a `LoadBalancer` Service directly, annotate it:
+### HTTPRoute (Gateway API) — primary
+
+external-dns automatically picks up hostnames from HTTPRoute resources via the `gateway-httproute` source:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: my-app
+  namespace: my-app
+spec:
+  hostnames:
+    - my-app.prod.example.com
+  ...
+```
+
+A DNS A record pointing to the Envoy Gateway LoadBalancer IP is created within ~30 seconds.
+
+### LoadBalancer Service — direct annotation
 
 ```yaml
 metadata:
@@ -111,6 +149,7 @@ metadata:
 
 | Placeholder | File | Description |
 |-------------|------|-------------|
-| `<AWS_REGION>` | All env values | AWS region |
+| `<AWS_REGION>` | AWS env values | AWS region |
 | `<YOUR_DOMAIN>` | All env values | Base domain |
-| `<DEV/UAT/PROD_AWS_ACCOUNT_ID>` | Respective env values | AWS account ID |
+| `<DEV/UAT/PROD_AWS_ACCOUNT_ID>` | AWS env values | AWS account ID per environment |
+| `<GCP_PROJECT_ID>` | GCP env values | GCP project ID |

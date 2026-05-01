@@ -1,0 +1,30 @@
+{{- if .Values.apps.envoyGatewayConfig.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway-config-{{ .Values.env }}
+  namespace: {{ .Values.argoCDNamespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.apps.envoyGatewayConfig.syncWave | quote }}
+spec:
+  project: default
+  sources:
+    # Common: GatewayClass (cloud-agnostic, identical in every environment)
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      path: vault-eso/argocd/app-default-values/envoy-gateway/config
+    # Env-specific: EnvoyProxy (cloud-specific LoadBalancer annotations)
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.targetRevision }}
+      path: vault-eso/argocd/environments/{{ .Values.env }}/envoy-gateway
+  destination:
+    name: {{ .Values.env }}
+    namespace: {{ .Values.apps.envoyGatewayConfig.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

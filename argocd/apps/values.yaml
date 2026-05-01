@@ -83,3 +83,14 @@ apps:
     syncWave: "0"
     chartVersion: "1.14.4"
     namespace: external-dns
+
+  envoyGateway:
+    enabled: true
+    syncWave: "0"
+    chartVersion: "v1.2.3"
+    namespace: envoy-gateway-system
+
+  envoyGatewayConfig:
+    enabled: true
+    syncWave: "1"
+    namespace: envoy-gateway-system

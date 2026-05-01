@@ -1,6 +1,6 @@
 # ArgoCD App-of-Apps
 
-GitOps configuration for a multi-environment Kubernetes platform using ArgoCD's App-of-Apps pattern. Manages Vault, External Secrets Operator, monitoring (kube-prometheus-stack + Thanos), cert-manager, external-dns, Langfuse, and a sample workload across `dev`, `uat`, and `prod` clusters.
+GitOps configuration for a multi-environment Kubernetes platform using ArgoCD's App-of-Apps pattern. Manages Vault, External Secrets Operator, monitoring (kube-prometheus-stack + Thanos), Envoy Gateway (Gateway API), cert-manager, external-dns, Langfuse, and a sample workload across `dev`, `uat`, and `prod` clusters. Portable across **EKS (AWS)** and **GKE (GCP)** — cloud-specific config lives in `environments/<env>/` and is edited in place when switching clouds.
 
 ## Architecture
 
@@ -21,6 +21,8 @@ root-apps/{dev,uat,prod}.yaml          ← manually applied once per cluster
                 ├── cert-manager
                 ├── cert-manager-issuers
                 ├── external-dns
+                ├── envoy-gateway
+                ├── envoy-gateway-config
                 ├── langfuse
                 └── hello-world
 ```
@@ -39,13 +41,13 @@ Sync waves enforce deployment dependencies:
 
 | Wave | Applications |
 |------|-------------|
-| 0 | `vault`, `eso`, `monitoring`, `cert-manager`, `external-dns` |
-| 1 | `vault-config`, `thanos`, `cert-manager-issuers` |
+| 0 | `vault`, `eso`, `monitoring`, `cert-manager`, `external-dns`, `envoy-gateway` |
+| 1 | `vault-config`, `thanos`, `cert-manager-issuers`, `envoy-gateway-config` |
 | 2 | `eso-secretstore` |
 | 3 | `vault-monitoring`, `eso-monitoring`, `k8s-monitoring`, `langfuse` |
 | 4 | `hello-world` |
 
-`monitoring` must be at wave 0 so the Prometheus Operator CRDs (PrometheusRule, ServiceMonitor, PodMonitor) exist before the wave-3 monitoring apps apply them. `cert-manager` must be at wave 0 so its CRDs and webhook are ready before `cert-manager-issuers` (wave 1) applies ClusterIssuer resources.
+`monitoring` must be at wave 0 so the Prometheus Operator CRDs (PrometheusRule, ServiceMonitor, PodMonitor) exist before the wave-3 monitoring apps apply them. `cert-manager` and `envoy-gateway` must be at wave 0 so their CRDs and webhooks are ready before the wave-1 apps apply ClusterIssuers and GatewayClass/EnvoyProxy resources respectively.
 
 ## Applications
 
@@ -62,7 +64,9 @@ Sync waves enforce deployment dependencies:
 | k8s-monitoring | kustomize (local) | monitoring | Kubernetes + Prometheus self-monitoring rules, Grafana dashboard, AlertManager ExternalSecret |
 | cert-manager | jetstack/cert-manager v1.14.5 | cert-manager | Automated TLS via Let's Encrypt DNS-01 + Route53 IRSA |
 | cert-manager-issuers | kustomize (local) | cert-manager | Per-env ClusterIssuers (letsencrypt-staging, letsencrypt-prod) |
-| external-dns | kubernetes-sigs/external-dns 1.14.4 | external-dns | Automatic Route53 A/CNAME records from Ingress/Service hostnames |
+| external-dns | kubernetes-sigs/external-dns 1.14.4 | external-dns | Automatic DNS records from Ingress/Service/HTTPRoute hostnames (Route53 or Cloud DNS) |
+| envoy-gateway | gateway.envoyproxy.io/gateway-helm v1.2.3 | envoy-gateway-system | Gateway API controller (Envoy-based) |
+| envoy-gateway-config | kustomize (local) | envoy-gateway-system | Per-env GatewayClass + cloud-specific EnvoyProxy (NLB on AWS, External LB on GCP) |
 | langfuse | langfuse 1.3.1 | langfuse | LLM observability platform |
 | hello-world | local Helm chart | hello-world | Sample workload with Vault secret injection |
 
@@ -83,8 +87,9 @@ argocd/
 │   ├── eso/
 │   ├── monitoring/         # kube-prometheus-stack base values
 │   ├── thanos/             # Thanos base values
-│   ├── cert-manager/       # cert-manager base values + per-env ClusterIssuers
-│   ├── external-dns/       # external-dns base values
+│   ├── cert-manager/       # cert-manager Helm base values
+│   ├── external-dns/       # external-dns Helm base values
+│   ├── envoy-gateway/      # Envoy Gateway Helm base values + common GatewayClass manifest
 │   └── langfuse/
 ├── environments/           # Per-environment overrides
 │   ├── dev/
@@ -102,8 +107,9 @@ argocd/
 - For Vault: AWS KMS key created and IAM roles for auto-unseal and IRSA
 - For monitoring + Thanos: S3 buckets and IAM roles (see [Monitoring README](app-default-values/monitoring/README.md))
 - For AlertManager: Slack incoming webhook URL and (prod only) PagerDuty Events API v2 routing key
-- For cert-manager: IAM roles `cert-manager-<env>` with Route53 permissions (see [cert-manager README](app-default-values/cert-manager/README.md))
-- For external-dns: IAM roles `external-dns-<env>` with Route53 permissions (see [external-dns README](app-default-values/external-dns/README.md))
+- For cert-manager: IAM roles `cert-manager-<env>` with Route53 permissions (AWS) or GCP service accounts with `roles/dns.admin` (GCP) — see [cert-manager README](app-default-values/cert-manager/README.md)
+- For external-dns: IAM roles `external-dns-<env>` with Route53 permissions (AWS) or GCP service accounts with `roles/dns.admin` (GCP) — see [external-dns README](app-default-values/external-dns/README.md)
+- For Envoy Gateway (AWS): AWS Load Balancer Controller must be deployed — it provisions NLBs from Service annotations. See [Envoy Gateway README](app-default-values/envoy-gateway/README.md)
 
 ### 1. Fill in placeholders
 
@@ -117,7 +123,19 @@ Replace all `<PLACEHOLDER>` values in environment files before committing:
 | `<DEV/UAT/PROD_KMS_KEY_ARN>` | vault env values | KMS key for Vault auto-unseal |
 | `<GRAFANA_ADMIN_PASSWORD>` | monitoring env values | Grafana admin password |
 | `<ACME_EMAIL>` | cert-manager ClusterIssuer files | Email for Let's Encrypt notifications |
-| `<ROUTE53_HOSTED_ZONE_ID>` | cert-manager ClusterIssuer files | Route53 hosted zone ID (e.g. `Z1234ABCD`) |
+| `<ROUTE53_HOSTED_ZONE_ID>` | `environments/<env>/cert-manager/issuers/` | Route53 hosted zone ID (e.g. `Z1234ABCD`) |
+| `<GCP_PROJECT_ID>` | `environments/<env>/cert-manager/issuers/` (GCP only) | GCP project ID |
+
+### Multi-cloud
+
+Cloud-specific config is isolated in `environments/<env>/` and edited directly when targeting a different cloud. No flag or path changes needed in `apps/` — the same ArgoCD applications always sync from the same env directory paths.
+
+| File | What to change for GCP |
+|------|------------------------|
+| `environments/<env>/cert-manager/values.yaml` | Replace IRSA ARN with `iam.gke.io/gcp-service-account` annotation |
+| `environments/<env>/cert-manager/issuers/*.yaml` | Replace `route53` solver block with `cloudDNS` (see comment in each file) |
+| `environments/<env>/envoy-gateway/envoyproxy.yaml` | Replace AWS NLB annotations with `cloud.google.com/load-balancer-type: External` (see comment in the file) |
+| `environments/<env>/external-dns/values.yaml` | Replace `provider: aws` + `aws.region` with `provider: google` + `google.project` |
 
 ### 2. Populate AlertManager secrets in Vault
 

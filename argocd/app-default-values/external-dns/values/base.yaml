@@ -1,12 +1,7 @@
-provider: aws
-
-aws:
-  region: ""
-  zoneType: public
-
 sources:
   - ingress
   - service
+  - gateway-httproute
 
 policy: sync
 
