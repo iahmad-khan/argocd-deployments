@@ -1,6 +1,10 @@
 prometheus:
   prometheusSpec:
     replicas: 2
+    # Remove the per-replica label so both replicas emit identical alert fingerprints.
+    # Without this, AlertManager sees two distinct alerts (differing only in prometheus_replica)
+    # and can fire duplicate notifications during the group_wait window.
+    replicaExternalLabelName: ""
     storageSpec:
       volumeClaimTemplate:
         spec:
